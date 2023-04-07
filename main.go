@@ -20,6 +20,10 @@ type weatherData struct {
 	} `json:"main"`
 }
 
+type memeData struct {
+	URL string `json:"url"`
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -43,7 +47,7 @@ func main() {
 
 	defer dg.Close()
 
-	fmt.Println("Bot is now running. Press CTRL-C to exit.")
+	fmt.Println("Bot is now running. Press CTRL-C to exit." )
 
 	select {}
 }
@@ -53,36 +57,62 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if !strings.HasPrefix(m.Content, "!weather") {
-		return
+	if strings.HasPrefix(m.Content, "!weather") {
+		location := strings.TrimSpace(strings.TrimPrefix(m.Content, "!weather"))
+
+		url := fmt.Sprintf("https://api.openweathermap.org/data/2.5/weather?q=%s&units=metric&appid=%s", location, os.Getenv("OPENWEATHERMAP_API_KEY"))
+		resp, err := http.Get(url)
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "Failed to get weather data.")
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			s.ChannelMessageSend(m.ChannelID, "Failed to get weather data.")
+			return
+		}
+
+		var data weatherData
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "Failed to parse weather data.")
+			return
+		}
+
+		description := data.Weather[0].Description
+		temp := data.Main.Temp
+
+		response := fmt.Sprintf("Current weather in %s: %s, temperature: %.1f°C", location, description, temp)
+
+		s.ChannelMessageSend(m.ChannelID, response)
+	} else if strings.HasPrefix(m.Content, "!meme") {
+		url, err := getMeme()
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "Failed to get meme data.")
+			return
+		}
+
+		s.ChannelMessageSend(m.ChannelID, url)
 	}
+}
 
-	location := strings.TrimSpace(strings.TrimPrefix(m.Content, "!weather"))
-
-	url := fmt.Sprintf("https://api.openweathermap.org/data/2.5/weather?q=%s&units=metric&appid=%s", location, os.Getenv("OPENWEATHERMAP_API_KEY"))
-	resp, err := http.Get(url)
+func getMeme() (string, error) {
+	resp, err := http.Get("https://meme-api.com/gimme")
 	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "Failed to get weather data.")
-		return
+		return "", fmt.Errorf("failed to get meme data: %s", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		s.ChannelMessageSend(m.ChannelID, "Failed to get weather data.")
-		return
+		return "", fmt.Errorf("failed to get meme data: unexpected status code %d", resp.StatusCode)
 	}
 
-	var data weatherData
+	var data memeData
 	err = json.NewDecoder(resp.Body).Decode(&data)
 	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "Failed to parse weather data.")
-		return
+		return "", fmt.Errorf("failed to parse meme data: %s", err)
 	}
 
-	description := data.Weather[0].Description
-	temp := data.Main.Temp
-
-	response := fmt.Sprintf("Current weather in %s: %s, temperature: %.1f°C", location, description, temp)
-
-	s.ChannelMessageSend(m.ChannelID, response)
+	return data.URL, nil
 }
