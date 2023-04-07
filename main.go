@@ -24,6 +24,12 @@ type memeData struct {
 	URL string `json:"url"`
 }
 
+type giphyData struct {
+	Data []struct {
+		URL string `json:"url"`
+	} `json:"data"`
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -94,6 +100,16 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		s.ChannelMessageSend(m.ChannelID, url)
+	} else if strings.HasPrefix(m.Content, "!gif") {
+		gifType := strings.TrimSpace(strings.TrimPrefix(m.Content, "!gif"))
+
+		url, err := getGif(gifType)
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "Failed to get GIF data.")
+			return
+		}
+
+		s.ChannelMessageSend(m.ChannelID, url)
 	}
 }
 
@@ -115,4 +131,32 @@ func getMeme() (string, error) {
 	}
 
 	return data.URL, nil
+}
+
+func getGif(gifType string) (string, error) {
+	apiKey := os.Getenv("GIPHY_API_KEY")
+	url := fmt.Sprintf("https://api.giphy.com/v1/gifs/search?q=%s&api_key=%s&limit=25", gifType, apiKey)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get GIF, status code: %d", resp.StatusCode)
+	}
+
+	var data giphyData
+	err = json.NewDecoder(resp.Body).Decode(&data)
+	if err != nil {
+		return "", err
+	}
+
+	if len(data.Data) == 0 {
+		return "", fmt.Errorf("no GIFs found for type: %s", gifType)
+	}
+
+	gifURL := data.Data[0].URL
+	return gifURL, nil
 }
